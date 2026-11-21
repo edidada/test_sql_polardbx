@@ -22,22 +22,24 @@ jobs:
       - name: Start PolarDB-X
         run: |
           docker run -d --name polardbx \
-            -p 3306:3306 \
-            polardbx/polardbx:latest
+            -m 6g --env mem_size=2048 \
+            -p 3306:8527 \
+            -v /etc/localtime:/etc/localtime \
+            polardbx-opensource-registry.cn-beijing.cr.aliyuncs.com/polardbx/polardb-x:v2.4.2_5.4.19
           echo "waiting for PolarDB-X (takes a few minutes on first boot)..."
           timeout 1200 bash -c '
-            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "select version();" 2>/dev/null; do
+            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' -e "select version();" 2>/dev/null; do
               sleep 10
             done'
-          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "SELECT version();"
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' -e "SELECT version();"
 
       - name: Run dept tree SQL demo
         run: |
-          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' --comments < sql/dept_tree.sql
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' --comments < sql/dept_tree.sql
           echo "=== SQL demo executed successfully ==="
 
       - name: Sanity check
         run: |
-          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' -e "
             SELECT COUNT(*) AS dept_rows FROM dept_demo.departments;
             SELECT COUNT(*) AS dept_rows_split FROM dept_demo.departments_split;"

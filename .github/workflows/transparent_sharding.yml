@@ -22,23 +22,25 @@ jobs:
       - name: Start PolarDB-X
         run: |
           docker run -d --name polardbx \
-            -p 3306:3306 \
-            polardbx/polardbx:latest
+            -m 6g --env mem_size=2048 \
+            -p 3306:8527 \
+            -v /etc/localtime:/etc/localtime \
+            polardbx-opensource-registry.cn-beijing.cr.aliyuncs.com/polardbx/polardb-x:v2.4.2_5.4.19
           echo "waiting for PolarDB-X (takes a few minutes on first boot)..."
           timeout 1200 bash -c '
-            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "select version();" 2>/dev/null; do
+            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' -e "select version();" 2>/dev/null; do
               sleep 10
             done'
-          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "SELECT version();"
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' -e "SELECT version();"
 
       - name: Run transparent-sharding SQL demo
         run: |
-          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' --comments < sql/transparent_sharding.sql
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' --comments < sql/transparent_sharding.sql
           echo "=== SQL demo executed successfully ==="
 
       - name: Sanity check (before vs after migration)
         run: |
-          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' -e "
             SELECT (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_0)
                  + (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_1)
                  + (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_2)
@@ -49,7 +51,7 @@ jobs:
 
       - name: Verify no data loss after 4 -> 8 online repartition
         run: |
-          N=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'123456' \
+          N=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'7kL9!pQa2m' \
               -e "SELECT COUNT(*) FROM haoxianglai_demo.orders;")
           echo "orders row count after 4->8 repartition: $N"
           test "$N" -eq 5
