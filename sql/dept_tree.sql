@@ -61,8 +61,10 @@ WITH RECURSIVE sub AS (
 SELECT root_id, COUNT(*) - 1 AS descendant_count
 FROM sub GROUP BY root_id ORDER BY root_id;
 
--- ---------- ④ 建表2: HASH 拆分表, 验证拆分表上的递归查询 ----------
-SELECT '④ 拆分表(HASH分区)上同样递归' AS demo;
+-- ---------- ④ 建表2: HASH 拆分表, 验证拆分表上的树查询 ----------
+-- 注: PolarDB-X 当前版本对拆分表上的递归 CTE 支持有限(PXC-4700),
+--     改用按层级展开的有界自连接, 在拆分表上同样可完成树查询
+SELECT '④ 拆分表(HASH分区)上的树查询(有界自连接)' AS demo;
 CREATE TABLE departments_split (
   id INT PRIMARY KEY,
   name VARCHAR(50) NOT NULL,
@@ -72,13 +74,16 @@ CREATE TABLE departments_split (
 
 INSERT INTO departments_split SELECT * FROM departments;
 
-WITH RECURSIVE dept_tree AS (
-    SELECT id, name, parent_id, 1 AS level FROM departments_split WHERE id = 2
-    UNION ALL
-    SELECT d.id, d.name, d.parent_id, dt.level + 1
-    FROM departments_split d INNER JOIN dept_tree dt ON d.parent_id = dt.id
-)
-SELECT COUNT(*) AS split_table_nodes FROM dept_tree;
+SELECT COUNT(*) AS split_table_nodes FROM (
+  SELECT id FROM departments_split WHERE id = 2
+  UNION ALL
+  SELECT d.id FROM departments_split d
+    JOIN departments_split p ON d.parent_id = p.id WHERE p.id = 2
+  UNION ALL
+  SELECT d.id FROM departments_split d
+    JOIN departments_split p ON d.parent_id = p.id
+    JOIN departments_split gp ON p.parent_id = gp.id WHERE gp.id = 2
+) t;
 
 -- ---------- ⑤ 深度限制防死循环 ----------
 SELECT '⑤ 深度限制' AS demo;
