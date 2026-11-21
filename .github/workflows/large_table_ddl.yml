@@ -1,0 +1,57 @@
+name: PolarDB-X 大表在线结构变更演示 (400亿行大表 DDL)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  polardbx-large-table-ddl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mysql client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
+
+      - name: Start PolarDB-X
+        run: |
+          docker run -d --name polardbx \
+            -p 3306:3306 \
+            polardbx/polardbx:latest
+          echo "waiting for PolarDB-X (takes a few minutes on first boot)..."
+          timeout 1200 bash -c '
+            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "select version();" 2>/dev/null; do
+              sleep 10
+            done'
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "SELECT version();"
+
+      - name: Run large-table online DDL demo
+        run: |
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' --comments < sql/large_table_ddl.sql
+          echo "=== SQL demo executed successfully ==="
+
+      - name: Sanity check (schema changed, data intact)
+        run: |
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "
+            SELECT (SELECT COUNT(*) FROM large_ddl_demo.orders_fact) AS rows_after,
+                   (SELECT SUM(discount) FROM large_ddl_demo.orders_fact) AS discount_sum;
+            SELECT COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA='large_ddl_demo' AND TABLE_NAME='orders_fact'
+                AND COLUMN_NAME IN ('amount','discount');"
+
+      - name: Verify DDL applied and data preserved
+        run: |
+          N=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'123456' \
+              -e "SELECT COUNT(*) FROM large_ddl_demo.orders_fact;")
+          D=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'123456' \
+              -e "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='large_ddl_demo' AND TABLE_NAME='orders_fact' AND COLUMN_NAME='discount';")
+          echo "rows after online DDL: $N, new column discount present: $D"
+          test "$N" -eq 21
+          test "$D" -eq 1
+          echo "=== online DDL verified ==="

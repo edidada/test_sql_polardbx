@@ -1,0 +1,56 @@
+name: PolarDB-X 透明分布式演示 (好想来分库分表迁移)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  polardbx-transparent-sharding:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mysql client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
+
+      - name: Start PolarDB-X
+        run: |
+          docker run -d --name polardbx \
+            -p 3306:3306 \
+            polardbx/polardbx:latest
+          echo "waiting for PolarDB-X (takes a few minutes on first boot)..."
+          timeout 1200 bash -c '
+            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "select version();" 2>/dev/null; do
+              sleep 10
+            done'
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "SELECT version();"
+
+      - name: Run transparent-sharding SQL demo
+        run: |
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' --comments < sql/transparent_sharding.sql
+          echo "=== SQL demo executed successfully ==="
+
+      - name: Sanity check (before vs after migration)
+        run: |
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "
+            SELECT (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_0)
+                 + (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_1)
+                 + (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_2)
+                 + (SELECT COUNT(*) FROM haoxianglai_demo.orders_app_shard_3) AS before_rows,
+                 (SELECT COUNT(*) FROM haoxianglai_demo.orders) AS after_rows;
+            SELECT COUNT(*) AS orders_after_scale, SUM(amount) AS amount_after_scale
+              FROM haoxianglai_demo.orders;"
+
+      - name: Verify no data loss after 4 -> 8 online repartition
+        run: |
+          N=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'123456' \
+              -e "SELECT COUNT(*) FROM haoxianglai_demo.orders;")
+          echo "orders row count after 4->8 repartition: $N"
+          test "$N" -eq 5
+          echo "=== data integrity verified ==="

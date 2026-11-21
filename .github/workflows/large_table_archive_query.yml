@@ -1,0 +1,56 @@
+name: PolarDB-X 大表归档查询演示 (400亿行大表归档)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  polardbx-archive-query:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mysql client
+        run: sudo apt-get update && sudo apt-get install -y mysql-client
+
+      - name: Start PolarDB-X
+        run: |
+          docker run -d --name polardbx \
+            -p 3306:3306 \
+            polardbx/polardbx:latest
+          echo "waiting for PolarDB-X (takes a few minutes on first boot)..."
+          timeout 1200 bash -c '
+            until mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "select version();" 2>/dev/null; do
+              sleep 10
+            done'
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "SELECT version();"
+
+      - name: Run large-table archive query demo
+        run: |
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' --comments < sql/large_table_archive_query.sql
+          echo "=== SQL demo executed successfully ==="
+
+      - name: Sanity check (partition pruning + aggregates)
+        run: |
+          mysql -h127.0.0.1 -P3306 -upolardbx_root -p'123456' -e "
+            SELECT (SELECT COUNT(*) FROM archive_query_demo.orders_archive) AS total_rows,
+                   (SELECT SUM(amount) FROM archive_query_demo.orders_archive) AS total_amount;
+            SELECT COUNT(*) AS month_rows FROM archive_query_demo.orders_archive WHERE arch_month = 202401;
+            SELECT COUNT(*) AS range_rows FROM archive_query_demo.orders_archive WHERE arch_month BETWEEN 202301 AND 202412;"
+
+      - name: Verify archive query results
+        run: |
+          T=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'123456' \
+              -e "SELECT COUNT(*) FROM archive_query_demo.orders_archive;")
+          M=$(mysql -N -h127.0.0.1 -P3306 -upolardbx_root -p'123456' \
+              -e "SELECT COUNT(*) FROM archive_query_demo.orders_archive WHERE arch_month = 202401;")
+          echo "archive total rows: $T, 202401 rows: $M"
+          test "$T" -eq 9
+          test "$M" -eq 1
+          echo "=== archive query verified ==="
